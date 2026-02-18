@@ -4,22 +4,55 @@ import { UsersService } from "../users/users.service";
 import { JwtService } from "@nestjs/jwt";
 import * as bcrypt from "bcryptjs";
 import { User } from '../users/users.model';
+import { ConfigService } from '@nestjs/config';
+import { TokensService } from '../tokens/tokens.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     private userService: UsersService,
     private jwtService: JwtService,
+    private configService: ConfigService,
+    private tokensService: TokensService,
   ) {}
+
+  private async generateTokens(user: User) {
+    const payload = {email: user.email, id: user.id, roles: user.roles};
+
+    const access_token = this.jwtService.sign(payload, {
+      secret: this.configService.get('JWT_ACCESS_SECRET'),
+      expiresIn: this.configService.get('JWT_ACCESS_EXPIRES') || '5m',
+    });
+
+    const refresh_token = this.jwtService.sign(payload, {
+      secret: this.configService.get('JWT_REFRESH_SECRET'),
+      expiresIn: this.configService.get('JWT_REFRESH_EXPIRES') || '30d',
+    });
+
+    return { access_token, refresh_token };
+  }
+
+  private async saveRefreshToken(userId: number, refreshToken: string) {
+    const refreshTokenHash = await bcrypt.hash(refreshToken, 5);
+
+    const existing = await this.tokensService.getHashByUserId(userId);
+
+    if (existing) {
+      existing.refreshTokenHash = refreshTokenHash;
+      await existing.save();
+      return;
+    }
+
+    await this.tokensService.addUserHash({ userId, refreshTokenHash });
+  }
 
   async login(userDto: CreateUserDto) {
     const user = await this.validateUser(userDto);
 
-    if (user) {
-      return this.generateToken(user);
-    }
+    const tokens = await this.generateTokens(user);
+    await this.saveRefreshToken(user.id, tokens.refresh_token);
 
-    throw new UnauthorizedException({message: 'Данные пользователя не переданы'});
+    return { access_token: tokens.access_token };
   }
 
   async registration(userDto: CreateUserDto) {
@@ -30,21 +63,48 @@ export class AuthService {
     const hashedPassword = await bcrypt.hash(userDto.password, 5);
 
     const user = await this.userService.createUser({ ...userDto, password: hashedPassword });
-    return this.generateToken(user)
+    const tokens = await this.generateTokens(user);
+    await this.saveRefreshToken(user.id, tokens.refresh_token);
+
+    return { access_token: tokens.access_token };
   }
 
-  private async generateToken(user: User) {
-    const payload = {email: user.email, id: user.id, roles: user.roles};
-    return {
-      token: this.jwtService.sign(payload),
+  async refresh(refreshToken: string) {
+    if (!refreshToken) throw new UnauthorizedException({message: 'Нет refresh токена'});
+
+    let payload: any;
+    try {
+      payload = this.jwtService.verify(refreshToken, {
+        secret: this.configService.get('JWT_REFRESH_SECRET'),
+      });
+    } catch {
+      throw new UnauthorizedException({message: 'Невалидный refresh токен'});
     }
+
+    const tokenRow = await this.tokensService.getHashByUserId(payload.id);
+    if (!tokenRow) throw new UnauthorizedException({message: 'Refresh токен не найден'});
+
+    const isValid = await bcrypt.compare(refreshToken, tokenRow.refreshTokenHash);
+    if (!isValid) throw new UnauthorizedException({message: 'Refresh токен не совпадает'});
+
+    const user = await this.userService.getUserByEmail(payload.email);
+
+    if (user) {
+      const tokens = await this.generateTokens(user);
+      await this.saveRefreshToken(user.id, tokens.refresh_token);
+      return tokens;
+    }
+
+    throw new UnauthorizedException({message: 'Пользователь не найден'});
+
+  }
+
+  async logout(userId: number) {
+    await this.tokensService.removeHashByUserId(userId);
   }
 
   private async validateUser(userDto: CreateUserDto) {
     const user = await this.userService.getUserByEmail(userDto.email);
-
-    console.log('User from DB:', user);
-    console.log('Password from DB:', user?.password);
 
     if (!user || !user.password) {
       throw new UnauthorizedException({ message: 'Некорректный email или пароль' });
@@ -58,3 +118,4 @@ export class AuthService {
     throw new UnauthorizedException({message: 'Некорректный email или пароль'});
   }
 }
+
