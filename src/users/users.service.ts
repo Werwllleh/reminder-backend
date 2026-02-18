@@ -56,6 +56,16 @@ export class UsersService {
   }
 
   async ban(dto: BanUserDto) {
+    const user = await this.userRepository.findByPk(dto.userId);
 
+    if (user) {
+      await user.update({
+        banned: true,
+        banReason: dto.banReason
+      });
+      return user;
+    }
+
+    throw new HttpException('Пользователь не найден', HttpStatus.NOT_FOUND);
   }
 }
