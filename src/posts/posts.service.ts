@@ -17,9 +17,9 @@ export class PostsService {
       throw new BadRequestException('Файл image обязателен');
     }
 
-    const fileName = await this.fileService.createFile(file)
-    const post = await this.postRepository.create({...dto, file:fileName});
-    return post;
+    // const fileName = await this.fileService.createFile(file)
+    // const post = await this.postRepository.create({...dto, file:fileName});
+    // return post;
   }
 }
 

@@ -18,7 +18,6 @@ export class PostsController {
   createPost(@Body() dto: CreatePostDto,
              @Req() req,
              @UploadedFile() file: Express.Multer.File) {
-    console.log(file);
     return this.postsService.create(dto, file);
   }
 }

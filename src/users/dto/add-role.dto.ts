@@ -1,10 +1,13 @@
 import { IsNotEmpty, IsNumber, IsString } from 'class-validator';
+import { ApiProperty } from "@nestjs/swagger";
 
 export class AddRoleDto {
-  @IsString({message: 'Должно быть строкой'})
-  @IsNotEmpty({message: 'Значение не должно быть пустым'})
+  @ApiProperty({ example: "Admin", description: "Тип роли" })
+  @IsString({ message: "Должно быть строкой" })
+  @IsNotEmpty({ message: "Значение не должно быть пустым" })
   readonly value: string;
-  @IsNumber({}, {message: 'Должно быть число'})
-  @IsNotEmpty({message: 'UserId не должен быть пустым'})
+  @ApiProperty({ example: 1, description: "Id пользователя" })
+  @IsNumber({}, { message: "Должно быть число" })
+  @IsNotEmpty({ message: "UserId не должен быть пустым" })
   readonly userId: number;
 }
